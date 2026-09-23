@@ -3,9 +3,16 @@ require_once __DIR__ . '/BaseRepository.php';
 
 class ProjectRepository extends BaseRepository
 {
-    /** List projects with owner name + task count, optionally filtered. */
-    public function search(string $status = '', string $query = ''): array
+    /** List projects with owner name + task count, optionally filtered by status, priority, owner, and search query. */
+    public function search(array|string $filters = [], string $legacyQuery = ''): array
     {
+        if (is_string($filters)) {
+            $filters = [
+                'status' => $filters,
+                'q'      => $legacyQuery,
+            ];
+        }
+
         $sql = "SELECT p.*, u.full_name AS owner_name,
                     (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.deleted_at IS NULL) AS task_count
                 FROM projects p
@@ -13,19 +20,43 @@ class ProjectRepository extends BaseRepository
                 WHERE p.deleted_at IS NULL";
         $params = [];
 
+        $status = trim($filters['status'] ?? '');
         if ($status !== '') {
             $sql .= " AND p.status = :status";
             $params['status'] = $status;
         }
-        if ($query !== '') {
-            $sql .= " AND (p.name LIKE :q OR p.code LIKE :q)";
-            $params['q'] = "%$query%";
+
+        $priority = trim($filters['priority'] ?? '');
+        if ($priority !== '') {
+            $sql .= " AND p.priority = :priority";
+            $params['priority'] = $priority;
         }
+
+        $ownerId = trim((string)($filters['owner_id'] ?? ''));
+        if ($ownerId !== '') {
+            $sql .= " AND p.owner_id = :owner_id";
+            $params['owner_id'] = (int)$ownerId;
+        }
+
+        $query = trim($filters['q'] ?? '');
+        if ($query !== '') {
+            $sql .= " AND (p.name LIKE :q1 OR p.code LIKE :q2 OR p.description LIKE :q3)";
+            $params['q1'] = "%$query%";
+            $params['q2'] = "%$query%";
+            $params['q3'] = "%$query%";
+        }
+
         $sql .= " ORDER BY p.updated_at DESC";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll();
+    }
+
+    /** Total count of all non-deleted projects in the system. */
+    public function countAll(): int
+    {
+        return (int) $this->db->query("SELECT COUNT(*) FROM projects WHERE deleted_at IS NULL")->fetchColumn();
     }
 
     /** Most recently updated projects for the dashboard. */
