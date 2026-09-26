@@ -209,6 +209,22 @@ class TaskRepository extends BaseRepository
         return (int) $stmt->fetchColumn();
     }
 
+    /** Count incomplete overdue tasks (due_date < CURDATE() and status != 'done') excluding deleted tasks/projects. */
+    public function countOverdue(): int
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM tasks t
+             JOIN projects p ON p.id = t.project_id
+             WHERE t.status != 'done'
+               AND t.due_date IS NOT NULL
+               AND t.due_date < CURDATE()
+               AND t.deleted_at IS NULL
+               AND p.deleted_at IS NULL"
+        );
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
+    }
+
     public function rawForBurndown(int $projectId): array
     {
         $stmt = $this->db->prepare("SELECT status, created_at, completed_at FROM tasks WHERE project_id = :id AND deleted_at IS NULL");
