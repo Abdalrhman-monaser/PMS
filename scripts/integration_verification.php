@@ -46,6 +46,7 @@ $cleanup = function() use ($pdo) {
     $pdo->exec("DELETE FROM tasks WHERE title LIKE 'IV105_%'");
     $pdo->exec("DELETE FROM project_members WHERE project_id IN (SELECT id FROM projects WHERE code LIKE 'IV_%')");
     $pdo->exec("DELETE FROM attachments WHERE project_id IN (SELECT id FROM projects WHERE code LIKE 'IV_%')");
+    $pdo->exec("DELETE FROM activity_log WHERE description LIKE '%IV_%' OR description LIKE '%IV105_%' OR description LIKE '%Integration Alpha%'");
     $pdo->exec("DELETE FROM projects WHERE code LIKE 'IV_%'");
     $pdo->exec("DELETE FROM users WHERE email LIKE 'iv105_%@pms.test'");
 };
@@ -112,6 +113,7 @@ try {
     check($projectRepo->find($p1) === null, "find() returns null for soft-deleted project");
     $rawDeleted = $pdo->query("SELECT * FROM projects WHERE id = $p1")->fetch();
     check($rawDeleted !== false && $rawDeleted['deleted_at'] !== null, "Soft delete preserves record with deleted_at timestamp in database");
+    check($projectRepo->find(999999) === null, "find() returns null for non-existent project ID");
 
     // ---------------------------------------------------------
     // AREA 2: Project Listing & Filters & Permissions (Issue #102)
@@ -202,6 +204,7 @@ try {
     $projectRepo->softDelete($pDeletedProj);
     $addDeleted = $projectRepo->addMember($pDeletedProj, $uAlice, 'Member');
     check($addDeleted === false, "addMember rejects adding member to soft-deleted project");
+    check($projectRepo->addMember($pTeam, 999999, 'Member') === false, "addMember rejects non-existent user ID");
 
     // ---------------------------------------------------------
     // AREA 4: Task Linking & Project Lifecycle (Issue #103)
@@ -235,6 +238,10 @@ try {
 
     $tasksAfterDel = $taskRepo->forProject($pTaskProj);
     check(empty($tasksAfterDel), "forProject returns empty for soft-deleted project");
+
+    // 4.3 Direct database cascade check on tasks table
+    $cascadedTask = $pdo->query("SELECT deleted_at FROM tasks WHERE id = $tA")->fetch();
+    check($cascadedTask !== false && $cascadedTask['deleted_at'] !== null, "softDelete cascades deleted_at timestamp directly to tasks in database");
 
     // ---------------------------------------------------------
     // AREA 5: Dashboard Metrics Alignment (Issue #104)
