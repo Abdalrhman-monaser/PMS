@@ -7,14 +7,30 @@ $projectRepo = new ProjectRepository();
 $taskRepo = new TaskRepository();
 $attachmentRepo = new AttachmentRepository();
 
-$id = (int)($_GET['id'] ?? 0);
+// 1. Strict ID validation
+$rawId = $_GET['id'] ?? null;
+$id = (is_numeric($rawId) && (int)$rawId > 0) ? (int)$rawId : 0;
 
+if ($id <= 0) {
+    flash('error', 'Invalid project ID.');
+    redirect('modules/projects/index.php');
+}
+
+// 2, 3, 4. Fetch project & verify exists and not deleted
+$project = $projectRepo->find($id);
+if (!$project) {
+    flash('error', 'Project not found.');
+    redirect('modules/projects/index.php');
+}
+
+// 5. Only now handle POST (e.g. attachment upload) with permission check
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['attachment'])) {
+    requirePermission('projects.edit');
     verifyCsrf();
     $stored = saveUploadedFile($_FILES['attachment']);
     if ($stored) {
         $attachmentRepo->createForProject($id, $user['id'], $_FILES['attachment']['name'], $stored, (int)$_FILES['attachment']['size'], $_FILES['attachment']['type']);
-        logActivity($user['id'], 'project', $id, 'attached', 'Attached a file to a project');
+        logActivity($user['id'], 'project', $id, 'attached', 'Attached a file to project "' . $project['name'] . '"');
         flash('success', 'File attached.');
     } else {
         flash('error', 'Could not upload file. Allowed: pdf, doc(x), xls(x), ppt(x), images, txt, csv, zip — max 15 MB.');
@@ -22,13 +38,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['attachment'])) {
     redirect('modules/projects/view.php?id=' . $id);
 }
 
-$project = $projectRepo->find($id);
-if (!$project) { flash('error', 'Project not found.'); redirect('modules/projects/index.php'); }
-
 $phases = $projectRepo->phases($id);
 $tasks = $taskRepo->forProject($id);
 $members = $projectRepo->members($id);
 $attachments = $attachmentRepo->forProject($id);
+
+// Calculate task summary metrics
+$totalTasks = count($tasks);
+$doneTasks = 0;
+foreach ($tasks as $t) {
+    if ($t['status'] === 'done') {
+        $doneTasks++;
+    }
+}
+$openTasks = $totalTasks - $doneTasks;
 
 $pageTitle = $project['name'];
 $activeNav = 'projects';
@@ -43,8 +66,20 @@ require __DIR__ . '/../../includes/header.php';
     <div class="flex gap-8">
         <span class="<?= statusBadgeClass($project['status']) ?>"><?= e(str_replace('_',' ',$project['status'])) ?></span>
         <span class="<?= priorityBadgeClass($project['priority']) ?>"><?= e($project['priority']) ?></span>
+        <?php if (userCan('projects.edit')): ?>
         <a href="<?= url('modules/projects/edit.php?id=' . $project['id']) ?>" class="btn btn-sm">Edit</a>
+        <?php endif; ?>
+        <?php if (userCan('tasks.create')): ?>
         <a href="<?= url('modules/tasks/edit.php?project_id=' . $project['id']) ?>" class="btn btn-sm btn-primary">+ Task</a>
+        <?php endif; ?>
+        <?php if (userCan('projects.delete')): ?>
+        <form method="post" action="<?= url('modules/projects/delete.php') ?>" style="display:inline;"
+              onsubmit="return confirm('Delete project &quot;<?= e($project['name']) ?>&quot; and all its tasks? This cannot be undone from the UI.');">
+            <?= csrfField() ?>
+            <input type="hidden" name="id" value="<?= $project['id'] ?>">
+            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+        </form>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -112,17 +147,34 @@ require __DIR__ . '/../../includes/header.php';
         <?php endforeach; ?>
     </ul>
     <?php endif; ?>
+    <?php if (userCan('projects.edit')): ?>
     <form method="post" enctype="multipart/form-data" class="flex gap-8">
         <?= csrfField() ?>
         <input type="file" name="attachment" required style="flex:1;">
         <button type="submit" class="btn btn-sm">Upload</button>
     </form>
+    <?php endif; ?>
 </div>
 
 <div class="card">
-    <div class="card-title">Tasks</div>
+    <div class="flex-between mb-16">
+        <div class="card-title" style="margin-bottom:0;">Tasks</div>
+        <div class="flex gap-12" style="font-size:12px;">
+            <span class="muted">Total: <strong style="color:var(--text);"><?= $totalTasks ?></strong></span>
+            <span class="muted">Open: <strong style="color:var(--info);"><?= $openTasks ?></strong></span>
+            <span class="muted">Done: <strong style="color:var(--success);"><?= $doneTasks ?></strong></span>
+        </div>
+    </div>
     <?php if (!$tasks): ?>
-        <div class="empty-state"><div class="glyph">∅</div>No tasks yet for this project.</div>
+        <div class="empty-state">
+            <div class="glyph">∅</div>
+            <div>No tasks yet for this project.</div>
+            <?php if (userCan('tasks.create')): ?>
+            <div style="margin-top:10px;">
+                <a href="<?= url('modules/tasks/edit.php?project_id=' . $project['id']) ?>" class="btn btn-sm btn-primary">+ Task</a>
+            </div>
+            <?php endif; ?>
+        </div>
     <?php else: ?>
     <table>
         <thead><tr><th>Task</th><th>Assignee</th><th>Priority</th><th>Status</th><th>Progress</th><th>Due</th></tr></thead>
