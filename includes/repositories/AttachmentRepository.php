@@ -1,49 +1,56 @@
 <?php
-require_once __DIR__ . '/BaseRepository.php';
+class AttachmentRepository {
+    private $db;
+    private $uploadDir = '../../uploads/';
 
-class AttachmentRepository extends BaseRepository
-{
-    public function forTask(int $taskId): array
-    {
-        $stmt = $this->db->prepare(
-            "SELECT a.*, u.full_name FROM attachments a LEFT JOIN users u ON u.id = a.uploaded_by
-             WHERE a.task_id = :id ORDER BY a.uploaded_at DESC"
-        );
-        $stmt->execute(['id' => $taskId]);
-        return $stmt->fetchAll();
+    public function __construct($dbConnection) {
+        $this->db = $dbConnection;
     }
 
-    public function forProject(int $projectId): array
-    {
-        $stmt = $this->db->prepare(
-            "SELECT a.*, u.full_name FROM attachments a LEFT JOIN users u ON u.id = a.uploaded_by
-             WHERE a.project_id = :id ORDER BY a.uploaded_at DESC"
-        );
-        $stmt->execute(['id' => $projectId]);
-        return $stmt->fetchAll();
-    }
+    public function upload(array $file, string $entityType, int $entityId, int $userId): bool {
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf'];
+        $blockedExtensions = ['php', 'phtml', 'exe', 'sh', 'bat', 'js'];
+        $maxSize = 10 * 1024 * 1024; // 10MB
 
-    public function find(int $id): ?array
-    {
-        $stmt = $this->db->prepare('SELECT * FROM attachments WHERE id = :id');
-        $stmt->execute(['id' => $id]);
-        $row = $stmt->fetch();
-        return $row ?: null;
-    }
+        $fileName = $file['name'];
+        $fileSize = $file['size'];
+        $fileTmpName = $file['tmp_name'];
+        $fileError = $file['error'];
 
-    public function createForTask(int $taskId, int $userId, string $originalName, string $storedPath, int $size, ?string $mime): void
-    {
-        $this->db->prepare(
-            "INSERT INTO attachments (task_id, uploaded_by, original_name, stored_path, file_size, mime_type)
-             VALUES (:t, :u, :n, :s, :sz, :m)"
-        )->execute(['t' => $taskId, 'u' => $userId, 'n' => $originalName, 's' => $storedPath, 'sz' => $size, 'm' => $mime]);
-    }
+        if ($fileError !== UPLOAD_ERR_OK) {
+            return false;
+        }
 
-    public function createForProject(int $projectId, int $userId, string $originalName, string $storedPath, int $size, ?string $mime): void
-    {
-        $this->db->prepare(
-            "INSERT INTO attachments (project_id, uploaded_by, original_name, stored_path, file_size, mime_type)
-             VALUES (:p, :u, :n, :s, :sz, :m)"
-        )->execute(['p' => $projectId, 'u' => $userId, 'n' => $originalName, 's' => $storedPath, 'sz' => $size, 'm' => $mime]);
+        // فحص الحجم
+        if ($fileSize > $maxSize) {
+            echo "<script>alert('الرفض: حجم الملف يتجاوز الحد الأقصى 10MB');</script>";
+            return false;
+        }
+
+        // فحص الامتداد
+        $fileExt = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        if (in_array($fileExt, $blockedExtensions) || !in_array($fileExt, $allowedExtensions)) {
+            echo "<script>alert('تحذير أمني: هذا النوع من الملفات غير مسموح به (محاولة رفع سكربت مرفوضة).');</script>";
+            return false;
+        }
+
+        // فحص نوع المحتوى الفعلي (MIME Type)
+        $mimeType = mime_content_type($fileTmpName);
+        $allowedMimes = ['image/jpeg', 'image/png', 'application/pdf'];
+        if (!in_array($mimeType, $allowedMimes)) {
+            echo "<script>alert('تحذير أمني: نوع المحتوى الفعلي غير متطابق أو مزيف.');</script>";
+            return false;
+        }
+
+        // توليد اسم ملف عشوائي مشفر
+        $randomFileName = bin2hex(random_bytes(16)) . '.' . $fileExt;
+        $destination = $this->uploadDir . $randomFileName;
+
+        if (move_uploaded_file($fileTmpName, $destination)) {
+            $stmt = $this->db->prepare("INSERT INTO attachments (entity_type, entity_id, user_id, file_name, original_name, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+            return $stmt->execute([$entityType, $entityId, $userId, $randomFileName, $fileName]);
+        }
+
+        return false;
     }
 }
