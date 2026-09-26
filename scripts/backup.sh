@@ -1,43 +1,46 @@
 #!/bin/bash
 # ============================================================
-# PMS database backup script (Phase 7)
-#
-# Usage (manual):
-#   bash scripts/backup.sh
-#
-# Usage (scheduled, Linux/macOS cron — runs daily at 2 AM):
-#   crontab -e
-#   0 2 * * * /bin/bash /path/to/pms/scripts/backup.sh >> /path/to/pms/storage/logs/backup.log 2>&1
-#
-# On Windows/XAMPP, use Task Scheduler to run this via Git Bash / WSL,
-# or replace with a .bat file calling the same mysqldump command:
-#   "C:\xampp\mysql\bin\mysqldump.exe" -u root pms_db > backup.sql
-#
-# Keeps the last 14 daily backups and deletes older ones automatically.
+# PMS Database Backup Script (Phase 7 / DevOps)
 # ============================================================
 
 set -e
 
-DB_NAME="pms_db"
-DB_USER="root"
-DB_PASS=""                     # leave empty for default XAMPP root
+DB_NAME="${DB_NAME:-pms_db}"
+DB_USER="${DB_USER:-root}"
+DB_PASS="${DB_PASS:-}"
 BACKUP_DIR="$(dirname "$0")/../storage/backups"
 KEEP_DAYS=14
+
+# البحث عن mysqldump تلقائياً إذا كان المسار الافتراضي لـ XAMPP
+if ! command -v mysqldump &> /dev/null; then
+    if [ -f "/c/xampp/mysql/bin/mysqldump.exe" ]; then
+        MYSQLDUMP_CMD="/c/xampp/mysql/bin/mysqldump.exe"
+    elif [ -f "C:/xampp/mysql/bin/mysqldump.exe" ]; then
+        MYSQLDUMP_CMD="C:/xampp/mysql/bin/mysqldump.exe"
+    else
+        echo "Error: mysqldump command not found. Please add MySQL to your PATH." >&2
+        exit 1
+    fi
+else
+    MYSQLDUMP_CMD="mysqldump"
+fi
 
 mkdir -p "$BACKUP_DIR"
 
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 OUT_FILE="$BACKUP_DIR/pms_db_${TIMESTAMP}.sql.gz"
 
+echo "Running backup using: $MYSQLDUMP_CMD ..."
+
 if [ -z "$DB_PASS" ]; then
-    mysqldump -u "$DB_USER" "$DB_NAME" | gzip > "$OUT_FILE"
+    "$MYSQLDUMP_CMD" -u "$DB_USER" "$DB_NAME" | gzip > "$OUT_FILE"
 else
-    mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" | gzip > "$OUT_FILE"
+    "$MYSQLDUMP_CMD" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" | gzip > "$OUT_FILE"
 fi
 
 echo "Backup written to $OUT_FILE"
 
-# Prune backups older than KEEP_DAYS
+# تنظيف النسخ القديمة
 find "$BACKUP_DIR" -name "pms_db_*.sql.gz" -mtime +"$KEEP_DAYS" -delete
 
 echo "Pruned backups older than $KEEP_DAYS days."
