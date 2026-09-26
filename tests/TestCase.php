@@ -66,6 +66,17 @@ abstract class TestCase extends BaseTestCase
                 FOREIGN KEY (project_id) REFERENCES projects(id),
                 FOREIGN KEY (assigned_to) REFERENCES users(id)
             );
+
+            CREATE TABLE IF NOT EXISTS project_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role_in_project TEXT DEFAULT 'Member',
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(project_id, user_id),
+                FOREIGN KEY (project_id) REFERENCES projects(id),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
         ");
     }
 
