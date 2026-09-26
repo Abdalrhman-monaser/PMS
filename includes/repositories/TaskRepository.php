@@ -96,36 +96,11 @@ class TaskRepository extends BaseRepository
 
     public function create(array $data): int
     {
-        $stmtProj = $this->db->prepare("SELECT id FROM projects WHERE id = :pid AND deleted_at IS NULL");
-        $stmtProj->execute(['pid' => (int)($data['project_id'] ?? 0)]);
-        if (!$stmtProj->fetch()) {
-            throw new InvalidArgumentException("Cannot create task: Project does not exist or has been deleted.");
-        }
-
-        $payload = [
-            'project_id'          => (int)($data['project_id'] ?? 0),
-            'phase_id'            => $data['phase_id'] ?? null,
-            'title'               => $data['title'] ?? '',
-            'description'         => $data['description'] ?? null,
-            'acceptance_criteria' => $data['acceptance_criteria'] ?? null,
-            'priority'            => $data['priority'] ?? 'medium',
-            'status'              => $data['status'] ?? 'todo',
-            'complexity'          => $data['complexity'] ?? 'moderate',
-            'progress'            => (int)($data['progress'] ?? 0),
-            'estimated_hours'     => $data['estimated_hours'] ?? null,
-            'actual_hours'        => $data['actual_hours'] ?? null,
-            'assigned_to'         => $data['assigned_to'] ?? null,
-            'reviewer_id'         => $data['reviewer_id'] ?? null,
-            'start_date'          => $data['start_date'] ?? null,
-            'due_date'            => $data['due_date'] ?? null,
-            'created_by'          => $data['created_by'] ?? null,
-        ];
-
         $sql = "INSERT INTO tasks (project_id, phase_id, title, description, acceptance_criteria, priority, status,
                 complexity, progress, estimated_hours, actual_hours, assigned_to, reviewer_id, start_date, due_date, created_by)
                 VALUES (:project_id, :phase_id, :title, :description, :acceptance_criteria, :priority, :status,
                 :complexity, :progress, :estimated_hours, :actual_hours, :assigned_to, :reviewer_id, :start_date, :due_date, :created_by)";
-        $this->db->prepare($sql)->execute($payload);
+        $this->db->prepare($sql)->execute($data);
         return (int) $this->db->lastInsertId();
     }
 

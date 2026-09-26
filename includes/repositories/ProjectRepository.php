@@ -82,22 +82,9 @@ class ProjectRepository extends BaseRepository
 
     public function create(array $data): int
     {
-        $payload = [
-            'name'         => $data['name'] ?? '',
-            'code'         => $data['code'] ?? '',
-            'description'  => $data['description'] ?? null,
-            'project_type' => $data['project_type'] ?? null,
-            'status'       => $data['status'] ?? 'planning',
-            'priority'     => $data['priority'] ?? 'medium',
-            'progress'     => (int)($data['progress'] ?? 0),
-            'start_date'   => $data['start_date'] ?? null,
-            'end_date'     => $data['end_date'] ?? null,
-            'owner_id'     => $data['owner_id'] ?? null,
-            'created_by'   => $data['created_by'] ?? null,
-        ];
         $sql = "INSERT INTO projects (name, code, description, project_type, status, priority, progress, start_date, end_date, owner_id, created_by)
                 VALUES (:name, :code, :description, :project_type, :status, :priority, :progress, :start_date, :end_date, :owner_id, :created_by)";
-        $this->db->prepare($sql)->execute($payload);
+        $this->db->prepare($sql)->execute($data);
         return (int) $this->db->lastInsertId();
     }
 
