@@ -1,4 +1,10 @@
-Options -Indexes
-<FilesMatch "\.(php|phtml|php3|php4|php5|pl|py|cgi|asp|sh)$">
-    Require all denied
+# منع تنفيذ أي سكربت برمجي داخل مجلد المرفقات
+<FilesMatch "\.(php|phtml|php3|php4|php5|pl|py|jsp|asp|html|htm|shtml|sh|cgi|exe)$">
+    SetHandler default-handler
 </FilesMatch>
+
+# تعطيل محرك PHP تماماً في هذا المجلد
+php_flag engine off
+
+# منع استعراض الملفات داخل المجلد
+Options -Indexes
