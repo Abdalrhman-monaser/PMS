@@ -59,6 +59,12 @@ class ProjectRepository extends BaseRepository
         return (int) $this->db->query("SELECT COUNT(*) FROM projects WHERE deleted_at IS NULL")->fetchColumn();
     }
 
+    /** Total count of non-deleted projects (alias for countAll). */
+    public function totalCount(): int
+    {
+        return $this->countAll();
+    }
+
     /** Most recently updated projects for the dashboard. */
     public function recentlyUpdated(int $limit = 5): array
     {
@@ -70,6 +76,50 @@ class ProjectRepository extends BaseRepository
                 ORDER BY p.updated_at DESC
                 LIMIT " . (int)$limit;
         return $this->db->query($sql)->fetchAll();
+    }
+
+    /** Recent projects (alias for recentlyUpdated). */
+    public function recentProjects(int $limit = 5): array
+    {
+        return $this->recentlyUpdated($limit);
+    }
+
+    /** Only active projects (status = 'active') for the dashboard. */
+    public function activeProjects(int $limit = 5): array
+    {
+        $sql = "SELECT p.*, u.full_name AS owner_name,
+                    (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.deleted_at IS NULL) AS task_count
+                FROM projects p
+                LEFT JOIN users u ON u.id = p.owner_id
+                WHERE p.status = 'active' AND p.deleted_at IS NULL
+                ORDER BY p.updated_at DESC
+                LIMIT " . (int)$limit;
+        return $this->db->query($sql)->fetchAll();
+    }
+
+    /** Count projects grouped by status for all 5 official statuses. */
+    public function statusCounts(): array
+    {
+        $rows = $this->db->query(
+            "SELECT status, COUNT(*) AS count
+             FROM projects
+             WHERE deleted_at IS NULL
+             GROUP BY status"
+        )->fetchAll();
+
+        $counts = [
+            'planning'  => 0,
+            'active'    => 0,
+            'on_hold'   => 0,
+            'completed' => 0,
+            'cancelled' => 0,
+        ];
+        foreach ($rows as $r) {
+            if (array_key_exists($r['status'], $counts)) {
+                $counts[$r['status']] = (int)$r['count'];
+            }
+        }
+        return $counts;
     }
 
     public function find(int $id): ?array
