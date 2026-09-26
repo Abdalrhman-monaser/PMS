@@ -1,4 +1,15 @@
 <?php
+require_once '../../includes/repositories/AttachmentRepository.php';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['attachment'])) {
+    $attachmentRepo = new AttachmentRepository($dbConnection);
+    $taskId = isset($_GET['id']) ? (int)$_GET['id'] : 1;
+    $userId = $_SESSION['user_id'] ?? 1; 
+    
+    $success = $attachmentRepo->upload($_FILES['attachment'], 'task', $taskId, $userId);
+    if ($success) {
+        echo "<script>alert('تم رفع الملف المشفر بنجاح!');</script>";
+    }
+}
 require_once __DIR__ . '/../../config/app.php';
 requireLogin();
 $user = currentUser();
@@ -186,6 +197,14 @@ require __DIR__ . '/../../includes/header.php';
             <li class="flex-between"><span class="muted">Due</span><span class="mono"><?= formatDate($task['due_date']) ?></span></li>
             <li class="flex-between"><span class="muted">Created</span><span class="mono"><?= formatDate($task['created_at']) ?></span></li>
         </ul>
+        <!-- نموذج رفع المرفقات الذي تمت إضافته -->
+<div style="padding: 20px; font-family: tahoma; background-color: #f9f9f9; border-top: 1px solid #ddd; margin-top: 20px;">
+    <h3>إرفاق ملف للمهمة (الحد الأقصى 10MB)</h3>
+    <form action="" method="POST" enctype="multipart/form-data">
+        <input type="file" name="attachment" required>
+        <button type="submit" style="background: #007bff; color: white; padding: 10px; border: none; cursor: pointer; border-radius: 4px;">رفع المرفق بأمان</button>
+    </form>
+</div>
     </div>
 </div>
 
