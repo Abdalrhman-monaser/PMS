@@ -16,31 +16,82 @@ if ($id <= 0) {
     redirect('modules/projects/index.php');
 }
 
-// 2, 3, 4. Fetch project & verify exists and not deleted
+// 2. Fetch project & verify exists and not deleted
 $project = $projectRepo->find($id);
 if (!$project) {
     flash('error', 'Project not found.');
     redirect('modules/projects/index.php');
 }
 
-// 5. Only now handle POST (e.g. attachment upload) with permission check
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['attachment'])) {
-    requirePermission('projects.edit');
+// 3. Handle POST actions
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
-    $stored = saveUploadedFile($_FILES['attachment']);
-    if ($stored) {
-        $attachmentRepo->createForProject($id, $user['id'], $_FILES['attachment']['name'], $stored, (int)$_FILES['attachment']['size'], $_FILES['attachment']['type']);
-        logActivity($user['id'], 'project', $id, 'attached', 'Attached a file to project "' . $project['name'] . '"');
-        flash('success', 'File attached.');
-    } else {
-        flash('error', 'Could not upload file. Allowed: pdf, doc(x), xls(x), ppt(x), images, txt, csv, zip — max 15 MB.');
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'add_member') {
+        if (!userCan('projects.edit') && !userCan('team.manage')) {
+            flash('error', 'You do not have permission to manage team members.');
+            redirect('modules/projects/view.php?id=' . $id);
+        }
+
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $roleInProject = trim($_POST['role_in_project'] ?? 'Member');
+
+        if ($userId <= 0) {
+            flash('error', 'Please select a valid user.');
+        } elseif ($projectRepo->isMember($id, $userId)) {
+            flash('error', 'User is already a member of this project.');
+        } else {
+            $added = $projectRepo->addMember($id, $userId, $roleInProject ?: 'Member');
+            if ($added) {
+                logActivity($user['id'], 'project', $id, 'member_added', "Added user #$userId to project team");
+                flash('success', 'Member added to project team.');
+            } else {
+                flash('error', 'Could not add member to project.');
+            }
+        }
+        redirect('modules/projects/view.php?id=' . $id);
     }
-    redirect('modules/projects/view.php?id=' . $id);
+
+    if ($action === 'remove_member') {
+        if (!userCan('projects.edit') && !userCan('team.manage')) {
+            flash('error', 'You do not have permission to manage team members.');
+            redirect('modules/projects/view.php?id=' . $id);
+        }
+
+        $userId = (int)($_POST['user_id'] ?? 0);
+        if ($userId <= 0) {
+            flash('error', 'Invalid user specified.');
+        } else {
+            $removed = $projectRepo->removeMember($id, $userId);
+            if ($removed) {
+                logActivity($user['id'], 'project', $id, 'member_removed', "Removed user #$userId from project team");
+                flash('success', 'Member removed from project team.');
+            } else {
+                flash('error', 'Could not remove member from project.');
+            }
+        }
+        redirect('modules/projects/view.php?id=' . $id);
+    }
+
+    if (isset($_FILES['attachment'])) {
+        requirePermission('projects.edit');
+        $stored = saveUploadedFile($_FILES['attachment']);
+        if ($stored) {
+            $attachmentRepo->createForProject($id, $user['id'], $_FILES['attachment']['name'], $stored, (int)$_FILES['attachment']['size'], $_FILES['attachment']['type']);
+            logActivity($user['id'], 'project', $id, 'attached', 'Attached a file to project "' . $project['name'] . '"');
+            flash('success', 'File attached.');
+        } else {
+            flash('error', 'Could not upload file. Allowed: pdf, doc(x), xls(x), ppt(x), images, txt, csv, zip — max 15 MB.');
+        }
+        redirect('modules/projects/view.php?id=' . $id);
+    }
 }
 
 $phases = $projectRepo->phases($id);
 $tasks = $taskRepo->forProject($id);
 $members = $projectRepo->members($id);
+$candidateMembers = (userCan('projects.edit') || userCan('team.manage')) ? $projectRepo->candidateMembers($id) : [];
 $attachments = $attachmentRepo->forProject($id);
 
 // Calculate task summary metrics
@@ -115,18 +166,55 @@ require __DIR__ . '/../../includes/header.php';
         </ul>
         <?php endif; ?>
 
-        <div class="card-title" style="margin-top:20px;">Team</div>
+        <div class="card-title" style="margin-top:20px;">Team (<?= count($members) ?>)</div>
         <?php if (!$members): ?>
             <div class="muted" style="font-size:13px;">No members assigned yet.</div>
         <?php else: ?>
         <ul style="display:flex; flex-direction:column; gap:8px;">
             <?php foreach ($members as $m): ?>
-                <li class="flex-between" style="font-size:13px;">
-                    <span><?= e($m['full_name']) ?></span>
-                    <span class="muted"><?= e($m['role_in_project'] ?: $m['role']) ?></span>
+                <li class="flex-between" style="font-size:13px; align-items:center;">
+                    <div class="flex gap-8" style="align-items:center;">
+                        <?php if (!empty($m['avatar_color'])): ?>
+                        <div class="avatar" style="width:24px;height:24px;font-size:10px;background:<?= e($m['avatar_color']) ?>;"><?= e(initials($m['full_name'])) ?></div>
+                        <?php endif; ?>
+                        <span><?= e($m['full_name']) ?></span>
+                        <span class="muted" style="font-size:11px;">(<?= e($m['role_in_project'] ?: $m['role']) ?>)</span>
+                    </div>
+                    <?php if (userCan('projects.edit') || userCan('team.manage')): ?>
+                    <form method="post" action="<?= url('modules/projects/view.php?id=' . $project['id']) ?>" style="margin:0;" onsubmit="return confirm('Remove &quot;<?= e($m['full_name']) ?>&quot; from project team?');">
+                        <?= csrfField() ?>
+                        <input type="hidden" name="action" value="remove_member">
+                        <input type="hidden" name="user_id" value="<?= (int)($m['user_id'] ?? 0) ?>">
+                        <button type="submit" class="btn btn-sm btn-danger" style="padding:2px 8px; font-size:11px;">Remove</button>
+                    </form>
+                    <?php endif; ?>
                 </li>
             <?php endforeach; ?>
         </ul>
+        <?php endif; ?>
+
+        <?php if (userCan('projects.edit') || userCan('team.manage')): ?>
+            <?php if (!empty($candidateMembers)): ?>
+            <form method="post" action="<?= url('modules/projects/view.php?id=' . $project['id']) ?>" class="flex gap-8" style="margin-top:14px; align-items:center;">
+                <?= csrfField() ?>
+                <input type="hidden" name="action" value="add_member">
+                <select name="user_id" required style="flex:2; font-size:12px; padding:4px 8px;">
+                    <option value="">Select team member...</option>
+                    <?php foreach ($candidateMembers as $cm): ?>
+                        <option value="<?= $cm['id'] ?>"><?= e($cm['full_name']) ?> (<?= e($cm['role']) ?>)</option>
+                    <?php endforeach; ?>
+                </select>
+                <select name="role_in_project" style="flex:1; font-size:12px; padding:4px 8px;">
+                    <option value="Member">Member</option>
+                    <option value="Lead">Lead</option>
+                    <option value="Reviewer">Reviewer</option>
+                    <option value="Owner">Owner</option>
+                </select>
+                <button type="submit" class="btn btn-sm btn-primary" style="padding:4px 10px; font-size:12px;">+ Add</button>
+            </form>
+            <?php else: ?>
+                <div class="muted" style="font-size:11.5px; margin-top:12px;">All active users are members of this project.</div>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
 </div>
@@ -158,7 +246,7 @@ require __DIR__ . '/../../includes/header.php';
 
 <div class="card">
     <div class="flex-between mb-16">
-        <div class="card-title" style="margin-bottom:0;">Tasks</div>
+        <div class="card-title" style="margin-bottom:0;">Tasks (<?= count($tasks) ?>)</div>
         <div class="flex gap-12" style="font-size:12px;">
             <span class="muted">Total: <strong style="color:var(--text);"><?= $totalTasks ?></strong></span>
             <span class="muted">Open: <strong style="color:var(--info);"><?= $openTasks ?></strong></span>

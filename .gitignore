@@ -21,3 +21,4 @@ Thumbs.db
 # مجلدات البرمجة (IDE)
 .idea/
 .vscode/
+.phpunit.cache/

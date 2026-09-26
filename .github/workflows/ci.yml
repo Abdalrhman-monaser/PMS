@@ -1,0 +1,29 @@
+name: PMS Automated Testing (CI)
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  phpunit-tests:
+    name: Run PHPUnit on Ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP Environment
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo, sqlite3, pdo_sqlite
+          coverage: none
+
+      - name: Install Dependencies
+        run: composer update --prefer-dist --no-interaction --no-progress
+
+      - name: Execute Tests via PHPUnit
+        run: ./vendor/bin/phpunit

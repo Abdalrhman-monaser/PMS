@@ -17,40 +17,151 @@ if ($id) {
 }
 
 $users = $userRepo->activeList();
+$errors = [];
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
-    $data = [
-        'name' => trim($_POST['name'] ?? ''),
-        'code' => trim($_POST['code'] ?? ''),
-        'description' => trim($_POST['description'] ?? ''),
-        'project_type' => trim($_POST['project_type'] ?? ''),
-        'status' => $_POST['status'] ?? 'planning',
-        'priority' => $_POST['priority'] ?? 'medium',
-        'progress' => (int)($_POST['progress'] ?? 0),
-        'start_date' => $_POST['start_date'] ?: null,
-        'end_date' => $_POST['end_date'] ?: null,
-        'owner_id' => $_POST['owner_id'] ?: null,
-    ];
 
-    if ($data['name'] === '' || $data['code'] === '') {
-        $error = 'Name and code are required.';
-    } else {
-        if ($id) {
-            $projectRepo->update($id, $data);
-            logActivity($user['id'], 'project', $id, 'updated', 'Updated project "' . $data['name'] . '"');
-            flash('success', 'Project updated.');
+    $name = trim($_POST['name'] ?? '');
+    $code = strtoupper(trim($_POST['code'] ?? ''));
+    $description = trim($_POST['description'] ?? '');
+    $project_type = trim($_POST['project_type'] ?? '');
+    $status = $_POST['status'] ?? 'planning';
+    $priority = $_POST['priority'] ?? 'medium';
+    $rawProgress = trim($_POST['progress'] ?? '0');
+    $startDateStr = trim($_POST['start_date'] ?? '');
+    $endDateStr = trim($_POST['end_date'] ?? '');
+    $ownerIdVal = trim($_POST['owner_id'] ?? '');
+
+    // 1. Name validation
+    if ($name === '') {
+        $errors[] = 'Project name is required.';
+    } elseif (mb_strlen($name) < 2) {
+        $errors[] = 'Project name must be at least 2 characters.';
+    } elseif (mb_strlen($name) > 200) {
+        $errors[] = 'Project name cannot exceed 200 characters.';
+    }
+
+    // 2. Code validation (uppercase, format, length, uniqueness)
+    if ($code === '') {
+        $errors[] = 'Project code is required.';
+    } elseif (!preg_match('/^[A-Z0-9_\-]{2,20}$/', $code)) {
+        $errors[] = 'Project code must be between 2 and 20 alphanumeric characters, hyphens, or underscores.';
+    } elseif ($projectRepo->codeExists($code, $id)) {
+        $errors[] = 'Project code "' . e($code) . '" is already in use. Please specify a unique code.';
+    }
+
+    // 3. Status validation (ENUM)
+    $allowedStatuses = ['planning', 'active', 'on_hold', 'completed', 'cancelled'];
+    if (!in_array($status, $allowedStatuses, true)) {
+        $errors[] = 'Selected status is invalid.';
+    }
+
+    // 4. Priority validation (ENUM)
+    $allowedPriorities = ['low', 'medium', 'high', 'critical'];
+    if (!in_array($priority, $allowedPriorities, true)) {
+        $errors[] = 'Selected priority is invalid.';
+    }
+
+    // 5. Progress validation (0-100)
+    if (!is_numeric($rawProgress) || (int)$rawProgress < 0 || (int)$rawProgress > 100) {
+        $errors[] = 'Progress must be a number between 0 and 100.';
+    }
+    $progress = is_numeric($rawProgress) ? (int)$rawProgress : 0;
+
+    // 6. Dates validation & comparison
+    $startDate = null;
+    $endDate = null;
+
+    if ($startDateStr !== '') {
+        $dtStart = DateTime::createFromFormat('Y-m-d', $startDateStr);
+        if (!$dtStart || $dtStart->format('Y-m-d') !== $startDateStr) {
+            $errors[] = 'Start date must be a valid date in YYYY-MM-DD format.';
         } else {
-            $data['created_by'] = $user['id'];
-            $newId = $projectRepo->create($data);
-            if ($data['owner_id']) {
-                $projectRepo->addMember($newId, (int)$data['owner_id'], 'Owner');
-            }
-            logActivity($user['id'], 'project', $newId, 'created', 'Created project "' . $data['name'] . '"');
-            flash('success', 'Project created.');
+            $startDate = $startDateStr;
         }
-        redirect('modules/projects/index.php');
+    }
+
+    if ($endDateStr !== '') {
+        $dtEnd = DateTime::createFromFormat('Y-m-d', $endDateStr);
+        if (!$dtEnd || $dtEnd->format('Y-m-d') !== $endDateStr) {
+            $errors[] = 'End date must be a valid date in YYYY-MM-DD format.';
+        } else {
+            $endDate = $endDateStr;
+        }
+    }
+
+    if ($startDate && $endDate && $endDate < $startDate) {
+        $errors[] = 'End date cannot be earlier than start date.';
+    }
+
+    // 7. Owner validation (must exist in users table and be active)
+    $ownerId = null;
+    if ($ownerIdVal !== '') {
+        $checkOwner = $userRepo->find((int)$ownerIdVal);
+        if (!$checkOwner || $checkOwner['status'] !== 'active') {
+            $errors[] = 'Selected owner is not a valid active user.';
+        } else {
+            $ownerId = (int)$ownerIdVal;
+        }
+    }
+
+    // 8. Project type validation
+    if (mb_strlen($project_type) > 60) {
+        $errors[] = 'Project type cannot exceed 60 characters.';
+    }
+
+    // Keep user input in the form on validation errors
+    $project = array_merge($project, [
+        'name' => $name,
+        'code' => $code,
+        'description' => $description,
+        'project_type' => $project_type,
+        'status' => $status,
+        'priority' => $priority,
+        'progress' => $progress,
+        'start_date' => $startDateStr,
+        'end_date' => $endDateStr,
+        'owner_id' => $ownerId,
+    ]);
+
+    if (empty($errors)) {
+        $data = [
+            'name' => $name,
+            'code' => $code,
+            'description' => $description ?: null,
+            'project_type' => $project_type ?: null,
+            'status' => $status,
+            'priority' => $priority,
+            'progress' => $progress,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'owner_id' => $ownerId,
+        ];
+
+        try {
+            if ($id) {
+                $projectRepo->update($id, $data);
+                if ($ownerId) {
+                    $projectRepo->addMember($id, $ownerId, 'Owner');
+                }
+                logActivity($user['id'], 'project', $id, 'updated', 'Updated project "' . $data['name'] . '"');
+                flash('success', 'Project updated.');
+            } else {
+                $data['created_by'] = $user['id'];
+                $newId = $projectRepo->create($data);
+                if ($ownerId) {
+                    $projectRepo->addMember($newId, $ownerId, 'Owner');
+                }
+                logActivity($user['id'], 'project', $newId, 'created', 'Created project "' . $data['name'] . '"');
+                flash('success', 'Project created.');
+            }
+            redirect('modules/projects/index.php');
+        } catch (PDOException $e) {
+            error_log('Project save error: ' . $e->getMessage());
+            $error = 'A database error occurred while saving the project. Please check your data.';
+        }
     }
 }
 
@@ -60,7 +171,17 @@ require __DIR__ . '/../../includes/header.php';
 ?>
 
 <div class="card" style="max-width:640px;">
-    <?php if ($error): ?><div class="alert alert-error"><?= e($error) ?></div><?php endif; ?>
+    <?php if (!empty($errors)): ?>
+        <div class="alert alert-error">
+            <ul style="margin:0; padding-left:18px; list-style-type:disc;">
+                <?php foreach ($errors as $err): ?>
+                    <li><?= e($err) ?></li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+    <?php elseif ($error): ?>
+        <div class="alert alert-error"><?= e($error) ?></div>
+    <?php endif; ?>
     <form method="post">
         <?= csrfField() ?>
         <div class="form-row">

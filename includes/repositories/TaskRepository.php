@@ -11,7 +11,7 @@ class TaskRepository extends BaseRepository
                 FROM tasks t
                 JOIN projects p ON p.id = t.project_id
                 LEFT JOIN users u ON u.id = t.assigned_to
-                WHERE t.deleted_at IS NULL";
+                WHERE t.deleted_at IS NULL AND p.deleted_at IS NULL";
         $params = [];
 
         if ($status !== '') { $sql .= " AND t.status = :status"; $params['status'] = $status; }
@@ -29,7 +29,7 @@ class TaskRepository extends BaseRepository
     {
         $sql = "SELECT t.*, p.name AS project_name
                 FROM tasks t JOIN projects p ON p.id = t.project_id
-                WHERE t.assigned_to = :uid AND t.deleted_at IS NULL";
+                WHERE t.assigned_to = :uid AND t.deleted_at IS NULL AND p.deleted_at IS NULL";
         $params = ['uid' => $userId];
         if ($status !== '') { $sql .= " AND t.status = :status"; $params['status'] = $status; }
         $sql .= " ORDER BY " . self::STATUS_ORDER . ", t.due_date IS NULL, t.due_date ASC";
@@ -42,8 +42,9 @@ class TaskRepository extends BaseRepository
     public function forProject(int $projectId, bool $topLevelOnly = true): array
     {
         $sql = "SELECT t.*, u.full_name AS assignee_name FROM tasks t
+                JOIN projects p ON p.id = t.project_id
                 LEFT JOIN users u ON u.id = t.assigned_to
-                WHERE t.project_id = :id AND t.deleted_at IS NULL";
+                WHERE t.project_id = :id AND t.deleted_at IS NULL AND p.deleted_at IS NULL";
         if ($topLevelOnly) $sql .= " AND t.parent_task_id IS NULL";
         $sql .= " ORDER BY " . self::STATUS_ORDER . ", t.due_date IS NULL, t.due_date ASC";
 
@@ -58,7 +59,7 @@ class TaskRepository extends BaseRepository
                 FROM tasks t
                 JOIN projects p ON p.id = t.project_id
                 LEFT JOIN users u ON u.id = t.assigned_to
-                WHERE t.status != 'done' AND t.deleted_at IS NULL AND t.due_date IS NOT NULL
+                WHERE t.status != 'done' AND t.deleted_at IS NULL AND p.deleted_at IS NULL AND t.due_date IS NOT NULL
                 ORDER BY t.due_date ASC
                 LIMIT " . (int)$limit;
         return $this->db->query($sql)->fetchAll();
@@ -188,14 +189,22 @@ class TaskRepository extends BaseRepository
 
     public function countByStatusNot(string $status): int
     {
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM tasks WHERE status != :status AND deleted_at IS NULL");
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM tasks t
+             JOIN projects p ON p.id = t.project_id
+             WHERE t.status != :status AND t.deleted_at IS NULL AND p.deleted_at IS NULL"
+        );
         $stmt->execute(['status' => $status]);
         return (int) $stmt->fetchColumn();
     }
 
     public function countByStatus(string $status): int
     {
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM tasks WHERE status = :status AND deleted_at IS NULL");
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM tasks t
+             JOIN projects p ON p.id = t.project_id
+             WHERE t.status = :status AND t.deleted_at IS NULL AND p.deleted_at IS NULL"
+        );
         $stmt->execute(['status' => $status]);
         return (int) $stmt->fetchColumn();
     }
