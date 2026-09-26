@@ -82,9 +82,22 @@ class ProjectRepository extends BaseRepository
 
     public function create(array $data): int
     {
+        $payload = [
+            'name'         => $data['name'] ?? '',
+            'code'         => $data['code'] ?? '',
+            'description'  => $data['description'] ?? null,
+            'project_type' => $data['project_type'] ?? null,
+            'status'       => $data['status'] ?? 'planning',
+            'priority'     => $data['priority'] ?? 'medium',
+            'progress'     => (int)($data['progress'] ?? 0),
+            'start_date'   => $data['start_date'] ?? null,
+            'end_date'     => $data['end_date'] ?? null,
+            'owner_id'     => $data['owner_id'] ?? null,
+            'created_by'   => $data['created_by'] ?? null,
+        ];
         $sql = "INSERT INTO projects (name, code, description, project_type, status, priority, progress, start_date, end_date, owner_id, created_by)
                 VALUES (:name, :code, :description, :project_type, :status, :priority, :progress, :start_date, :end_date, :owner_id, :created_by)";
-        $this->db->prepare($sql)->execute($data);
+        $this->db->prepare($sql)->execute($payload);
         return (int) $this->db->lastInsertId();
     }
 
@@ -103,19 +116,72 @@ class ProjectRepository extends BaseRepository
         $this->db->prepare('UPDATE tasks SET deleted_at = NOW() WHERE project_id = :id')->execute(['id' => $id]);
     }
 
-    public function addMember(int $projectId, int $userId, string $role = 'Owner'): void
+    public function isMember(int $projectId, int $userId): bool
     {
-        $this->db->prepare("INSERT IGNORE INTO project_members (project_id, user_id, role_in_project) VALUES (:p,:u,:r)")
-            ->execute(['p' => $projectId, 'u' => $userId, 'r' => $role]);
+        $stmt = $this->db->prepare("SELECT 1 FROM project_members WHERE project_id = :p AND user_id = :u");
+        $stmt->execute(['p' => $projectId, 'u' => $userId]);
+        return (bool) $stmt->fetchColumn();
+    }
+
+    public function addMember(int $projectId, int $userId, string $role = 'Member'): bool
+    {
+        // Ensure project exists and is not soft deleted
+        $stmtProj = $this->db->prepare("SELECT id FROM projects WHERE id = :p AND deleted_at IS NULL");
+        $stmtProj->execute(['p' => $projectId]);
+        if (!$stmtProj->fetch()) {
+            return false;
+        }
+
+        // Ensure user exists
+        $stmtUser = $this->db->prepare("SELECT id FROM users WHERE id = :u");
+        $stmtUser->execute(['u' => $userId]);
+        if (!$stmtUser->fetch()) {
+            return false;
+        }
+
+        // Prevent duplicate membership
+        if ($this->isMember($projectId, $userId)) {
+            return false;
+        }
+
+        $stmt = $this->db->prepare("INSERT INTO project_members (project_id, user_id, role_in_project) VALUES (:p, :u, :r)");
+        return $stmt->execute(['p' => $projectId, 'u' => $userId, 'r' => $role]);
+    }
+
+    public function removeMember(int $projectId, int $userId): bool
+    {
+        $stmt = $this->db->prepare("DELETE FROM project_members WHERE project_id = :p AND user_id = :u");
+        $stmt->execute(['p' => $projectId, 'u' => $userId]);
+        return $stmt->rowCount() > 0;
     }
 
     public function members(int $projectId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT u.full_name, u.role, pm.role_in_project FROM project_members pm
-             JOIN users u ON u.id = pm.user_id WHERE pm.project_id = :id"
+            "SELECT pm.id AS member_id, pm.project_id, pm.user_id, pm.role_in_project, pm.added_at,
+                    u.full_name, u.email, u.role, u.avatar_color
+             FROM project_members pm
+             JOIN users u ON u.id = pm.user_id
+             JOIN projects p ON p.id = pm.project_id
+             WHERE pm.project_id = :id AND p.deleted_at IS NULL
+             ORDER BY pm.added_at ASC, u.full_name ASC"
         );
         $stmt->execute(['id' => $projectId]);
+        return $stmt->fetchAll();
+    }
+
+    public function candidateMembers(int $projectId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT u.id, u.full_name, u.email, u.role
+             FROM users u
+             WHERE u.status = 'active'
+               AND u.id NOT IN (
+                   SELECT pm.user_id FROM project_members pm WHERE pm.project_id = :pid
+               )
+             ORDER BY u.full_name ASC"
+        );
+        $stmt->execute(['pid' => $projectId]);
         return $stmt->fetchAll();
     }
 
