@@ -1,7 +1,7 @@
 <?php
 /**
  * Core application bootstrap: env, error handling, session, constants,
- * autoload of helpers and repositories.
+ * autoload of helpers and repositories.     
  */
 
 require_once __DIR__ . '/env.php';

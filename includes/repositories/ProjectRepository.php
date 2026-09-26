@@ -61,6 +61,20 @@ class ProjectRepository extends BaseRepository
         return $row ?: null;
     }
 
+    /** Check if a project code already exists in the system (optionally excluding a specific project ID). */
+    public function codeExists(string $code, ?int $excludeId = null): bool
+    {
+        $sql = "SELECT COUNT(*) FROM projects WHERE code = :code";
+        $params = ['code' => $code];
+        if ($excludeId !== null) {
+            $sql .= " AND id != :id";
+            $params['id'] = $excludeId;
+        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn() > 0;
+    }
+
     public function all(): array
     {
         return $this->db->query("SELECT id, name FROM projects WHERE deleted_at IS NULL ORDER BY name")->fetchAll();
