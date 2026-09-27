@@ -1,17 +1,15 @@
 <?php
-require_once __DIR__ . '/../../config/app.php';
-requireLogin();
-$user = currentUser();
+require_once '../../includes/repositories/NotificationRepository.php';
 
-$id = (int)($_GET['id'] ?? 0);
-$notifRepo = new NotificationRepository();
-$notification = $notifRepo->find($id);
+$notifId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
-if ($notification && (int)$notification['user_id'] === (int)$user['id']) {
-    $notifRepo->markRead($id, $user['id']);
-    if ($notification['link']) {
-        redirect($notification['link']);
-    }
+if ($notifId > 0) {
+    $notificationRepo = new NotificationRepository($dbConnection);
+    $notificationRepo->markAsRead($notifId);
+    
+    header("Location: /dashboard/tasks");
+    exit();
 }
 
-redirect('modules/notifications/index.php');
+header("Location: /");
+exit();

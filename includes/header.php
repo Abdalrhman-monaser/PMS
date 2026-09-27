@@ -93,6 +93,53 @@ $unreadNotifications = (new NotificationRepository())->unreadCount($user['id']);
         <div class="content">
         <?php
             $success = flash('success');
+<?php
+$userId = $_SESSION['user_id'] ?? 1; 
+$unreadCount = $notificationRepo->getUnreadCount($userId);
+$latestNotifications = $notificationRepo->getLatestNotifications($userId, 5);
+
+function getRelativeTime($datetime) {
+    $diff = date_diff(new DateTime(), new DateTime($datetime));
+    if ($diff->d > 0) return "منذ " . $diff->d . " يوم";
+    if ($diff->h > 0) return "منذ " . $diff->h . " ساعة";
+    if ($diff->i > 0) return "منذ " . $diff->i . " دقيقة";
+    return "الآن";
+}
+?>
+
+<style>
+    .notif-container { position: relative; display: inline-block; font-family: sans-serif; }
+    .notif-bell { font-size: 24px; cursor: pointer; background: none; border: none; padding: 10px; }
+    .notif-badge { position: absolute; top: 2px; right: 2px; background-color: red; color: white; border-radius: 50%; padding: 2px 6px; font-size: 12px; font-weight: bold; }
+    .notif-dropdown { display: none; position: absolute; right: 0; background: white; width: 320px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-radius: 8px; z-index: 1000; overflow: hidden; }
+    .notif-container:hover .notif-dropdown { display: block; }
+    .notif-header { padding: 12px 15px; background: #f8f9fa; border-bottom: 1px solid #ddd; font-weight: bold; text-align: right; }
+    .notif-item { display: block; padding: 12px 15px; border-bottom: 1px solid #eee; text-decoration: none; color: #333; text-align: right; }
+    .notif-item:hover { background: #f1f5f9; }
+    .notif-time { font-size: 11px; color: #888; display: block; margin-top: 5px; }
+</style>
+
+<div class="notif-container">
+    <button class="notif-bell">🔔
+        <?php if($unreadCount > 0): ?>
+            <span class="notif-badge"><?= $unreadCount ?></span>
+        <?php endif; ?>
+    </button>
+    <div class="notif-dropdown">
+        <div class="notif-header">الإشعارات (<?= $unreadCount ?>)</div>
+        <?php if(empty($latestNotifications)): ?>
+            <div class="notif-item" style="text-align: center; color: #777;">لا توجد إشعارات جديدة</div>
+        <?php else: ?>
+            <?php foreach($latestNotifications as $notif): ?>
+                <a href="/modules/notifications/read.php?id=<?= $notif['id'] ?>" class="notif-item">
+                    <strong><?= htmlspecialchars($notif['title']) ?></strong>
+                    <span style="display:block; font-size: 13px; margin-top: 3px;"><?= htmlspecialchars($notif['message']) ?></span>
+                    <span class="notif-time"><?= getRelativeTime($notif['created_at']) ?></span>
+                </a>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
+</div>
             $error = flash('error');
         ?>
         <?php if ($success): ?><div class="alert alert-success"><?= e($success) ?></div><?php endif; ?>
