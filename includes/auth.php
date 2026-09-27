@@ -1,67 +1,34 @@
 <?php
+// التأكد من بدء الجلسة
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 /**
- * Authentication / authorization helpers.
+ * دالة مساعدة للتحقق إذا كان المستخدم يملك الصلاحية (ترجع true أو false)
  */
-
-function currentUser(): ?array
-{
-    return $_SESSION['user'] ?? null;
-}
-
-function isLoggedIn(): bool
-{
-    return currentUser() !== null;
-}
-
-function requireLogin(): void
-{
-    if (!isLoggedIn()) {
-        redirect('modules/auth/login.php');
-    }
-}
-
-function requireRole(array $roles): void
-{
-    requireLogin();
-    if (!in_array(currentUser()['role'], $roles, true)) {
-        http_response_code(403);
-        die('You do not have permission to access this page.');
-    }
-}
-
-/** Fine-grained permission check (Phase 5). Admin is always true. */
-function userCan(string $permissionKey): bool
-{
-    $user = currentUser();
-    if (!$user) {
+function can(string $permission): bool {
+    // إذا لم تكن مصفوفة الصلاحيات موجودة في الجلسة، نمنع الوصول
+    if (!isset($_SESSION['user_permissions']) || !is_array($_SESSION['user_permissions'])) {
         return false;
     }
-    return (new PermissionRepository())->can($user['role'], $permissionKey);
+    
+    // البحث عن الصلاحية المطلوبة داخل المصفوفة المحفوظة
+    return in_array($permission, $_SESSION['user_permissions']);
 }
 
-function requirePermission(string $permissionKey): void
-{
-    requireLogin();
-    if (!userCan($permissionKey)) {
-        http_response_code(403);
-        die('You do not have permission to perform this action.');
+/**
+ * دالة الحراسة (Guard): توقف السكربت تماماً وتظهر 403 إذا لم يملك الصلاحية
+ */
+function requirePermission(string $permission) {
+    if (!can($permission)) {
+        // إرجاع كود 403 ووقف التنفيذ منعاً للوصول غير المصرح به
+        header("HTTP/1.1 403 Forbidden");
+        echo "<div style='text-align:center; margin-top:50px; font-family:tahoma;'>";
+        echo "<h1 style='color:red;'>403 Forbidden</h1>";
+        echo "<h3>عذراً، ليس لديك الصلاحية لتنفيذ هذه العملية.</h3>";
+        echo "<a href='/'>العودة للصفحة الرئيسية</a>";
+        echo "</div>";
+        exit();
     }
-}
-
-function attemptLogin(string $email, string $password): bool
-{
-    $user = (new UserRepository())->findByEmail($email);
-
-    if ($user && password_verify($password, $user['password_hash'])) {
-        unset($user['password_hash']);
-        $_SESSION['user'] = $user;
-        return true;
-    }
-    return false;
-}
-
-function logout(): void
-{
-    $_SESSION = [];
-    session_destroy();
 }
