@@ -7,14 +7,15 @@ $taskRepo = new TaskRepository();
 $userRepo = new UserRepository();
 $activityRepo = new ActivityRepository();
 
-$stats = [
-    'active_projects' => $projectRepo->countByStatus('active'),
-    'open_tasks'       => $taskRepo->countByStatusNot('done'),
-    'done_tasks'       => $taskRepo->countByStatus('done'),
-    'team_members'     => $userRepo->countActive(),
-];
+$totalProjects = $projectRepo->totalCount();
+$activeProjectsCount = $projectRepo->countByStatus('active');
+$openTasks = $taskRepo->countByStatusNot('done');
+$doneTasks = $taskRepo->countByStatus('done');
+$overdueTasks = $taskRepo->countOverdue();
+$teamMembers = $userRepo->countActive();
+$statusCounts = $projectRepo->statusCounts();
 
-$activeProjects = $projectRepo->recentlyUpdated(5);
+$activeProjects = $projectRepo->activeProjects(5);
 $upcomingTasks = $taskRepo->upcoming(6);
 $activity = $activityRepo->recent(8);
 
@@ -25,20 +26,61 @@ require __DIR__ . '/../../includes/header.php';
 
 <div class="grid grid-4 mb-24">
     <div class="card">
-        <div class="stat-value"><?= (int)$stats['active_projects'] ?></div>
+        <div class="stat-value"><?= (int)$activeProjectsCount ?></div>
         <div class="stat-label">Active Projects</div>
+        <div class="muted mono" style="font-size:11px; margin-top:4px;"><?= (int)$activeProjectsCount ?> active / <?= (int)$totalProjects ?> total</div>
     </div>
     <div class="card">
-        <div class="stat-value"><?= (int)$stats['open_tasks'] ?></div>
+        <div class="stat-value"><?= (int)$openTasks ?></div>
         <div class="stat-label">Open Tasks</div>
     </div>
     <div class="card">
-        <div class="stat-value"><?= (int)$stats['done_tasks'] ?></div>
+        <div class="stat-value"><?= (int)$doneTasks ?></div>
         <div class="stat-label">Completed Tasks</div>
     </div>
     <div class="card">
-        <div class="stat-value"><?= (int)$stats['team_members'] ?></div>
-        <div class="stat-label">Team Members</div>
+        <div class="stat-value" style="<?= $overdueTasks > 0 ? 'color:var(--danger);' : '' ?>"><?= (int)$overdueTasks ?></div>
+        <div class="stat-label">Overdue Tasks</div>
+        <?php if ($overdueTasks > 0): ?>
+        <div class="muted mono" style="font-size:11px; margin-top:4px; color:var(--danger);">Requires attention</div>
+        <?php else: ?>
+        <div class="muted mono" style="font-size:11px; margin-top:4px; color:var(--success);">All on track</div>
+        <?php endif; ?>
+    </div>
+</div>
+
+<div class="card mb-24">
+    <div class="flex-between mb-16">
+        <div class="card-title" style="margin-bottom:0;">Project Status Breakdown</div>
+        <div class="muted mono" style="font-size:12px;"><?= (int)$totalProjects ?> Total Projects</div>
+    </div>
+    <div style="display:flex; height:10px; border-radius:3px; overflow:hidden; background:var(--grid-line); margin-bottom:14px;">
+        <?php if ($totalProjects > 0): ?>
+            <?php if ($statusCounts['planning'] > 0): ?>
+                <div style="width:<?= round(($statusCounts['planning'] / $totalProjects) * 100, 1) ?>%; background:var(--text-dim);" title="Planning: <?= $statusCounts['planning'] ?>"></div>
+            <?php endif; ?>
+            <?php if ($statusCounts['active'] > 0): ?>
+                <div style="width:<?= round(($statusCounts['active'] / $totalProjects) * 100, 1) ?>%; background:var(--info);" title="Active: <?= $statusCounts['active'] ?>"></div>
+            <?php endif; ?>
+            <?php if ($statusCounts['on_hold'] > 0): ?>
+                <div style="width:<?= round(($statusCounts['on_hold'] / $totalProjects) * 100, 1) ?>%; background:var(--accent);" title="On Hold: <?= $statusCounts['on_hold'] ?>"></div>
+            <?php endif; ?>
+            <?php if ($statusCounts['completed'] > 0): ?>
+                <div style="width:<?= round(($statusCounts['completed'] / $totalProjects) * 100, 1) ?>%; background:var(--success);" title="Completed: <?= $statusCounts['completed'] ?>"></div>
+            <?php endif; ?>
+            <?php if ($statusCounts['cancelled'] > 0): ?>
+                <div style="width:<?= round(($statusCounts['cancelled'] / $totalProjects) * 100, 1) ?>%; background:var(--danger);" title="Cancelled: <?= $statusCounts['cancelled'] ?>"></div>
+            <?php endif; ?>
+        <?php else: ?>
+            <div style="width:100%; background:var(--grid-line);"></div>
+        <?php endif; ?>
+    </div>
+    <div class="flex" style="flex-wrap:wrap; gap:16px; font-size:12px;">
+        <div class="flex gap-8"><span style="width:10px; height:10px; border-radius:2px; background:var(--text-dim); display:inline-block;"></span><span class="muted">Planning:</span> <strong><?= (int)$statusCounts['planning'] ?></strong></div>
+        <div class="flex gap-8"><span style="width:10px; height:10px; border-radius:2px; background:var(--info); display:inline-block;"></span><span class="muted">Active:</span> <strong><?= (int)$statusCounts['active'] ?></strong></div>
+        <div class="flex gap-8"><span style="width:10px; height:10px; border-radius:2px; background:var(--accent); display:inline-block;"></span><span class="muted">On Hold:</span> <strong><?= (int)$statusCounts['on_hold'] ?></strong></div>
+        <div class="flex gap-8"><span style="width:10px; height:10px; border-radius:2px; background:var(--success); display:inline-block;"></span><span class="muted">Completed:</span> <strong><?= (int)$statusCounts['completed'] ?></strong></div>
+        <div class="flex gap-8"><span style="width:10px; height:10px; border-radius:2px; background:var(--danger); display:inline-block;"></span><span class="muted">Cancelled:</span> <strong><?= (int)$statusCounts['cancelled'] ?></strong></div>
     </div>
 </div>
 
@@ -47,10 +89,10 @@ require __DIR__ . '/../../includes/header.php';
         <div class="card mb-24">
             <div class="flex-between mb-16">
                 <div class="card-title" style="margin-bottom:0;">Active Projects</div>
-                <a href="<?= url('modules/projects/index.php') ?>" class="muted" style="font-size:12px;">View all →</a>
+                <a href="<?= url('modules/projects/index.php?status=active') ?>" class="muted" style="font-size:12px;">View all active →</a>
             </div>
             <?php if (!$activeProjects): ?>
-                <div class="empty-state"><div class="glyph">∅</div>No projects yet.</div>
+                <div class="empty-state"><div class="glyph">∅</div>No active projects right now.</div>
             <?php else: ?>
             <table>
                 <thead><tr><th>Project</th><th>Owner</th><th>Progress</th><th>Status</th></tr></thead>

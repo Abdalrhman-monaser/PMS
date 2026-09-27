@@ -1,5 +1,19 @@
 <?php
 
+
+class TaskRepository extends BaseRepository
+{
+    private const STATUS_ORDER = "FIELD(t.status,'blocked','in_progress','review','todo','done')";
+
+    public function search(string $status = '', string $projectId = '', string $query = ''): array
+    {
+        $sql = "SELECT t.*, p.name AS project_name, u.full_name AS assignee_name
+                FROM tasks t
+                JOIN projects p ON p.id = t.project_id
+                LEFT JOIN users u ON u.id = t.assigned_to
+                WHERE t.deleted_at IS NULL AND p.deleted_at IS NULL";
+        $params = [];
+
 namespace App\Repositories;
 
 use App\Contracts\TaskRepositoryInterface;
@@ -10,6 +24,18 @@ class TaskRepository extends BaseRepository implements TaskRepositoryInterface
 {
     public function find(int $id): ?array
     {
+
+        $sql = "SELECT t.*, p.name AS project_name
+                FROM tasks t JOIN projects p ON p.id = t.project_id
+                WHERE t.assigned_to = :uid AND t.deleted_at IS NULL AND p.deleted_at IS NULL";
+        $params = ['uid' => $userId];
+        if ($status !== '') { $sql .= " AND t.status = :status"; $params['status'] = $status; }
+        $sql .= " ORDER BY " . self::STATUS_ORDER . ", t.due_date IS NULL, t.due_date ASC";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+
         try {
             $stmt = $this->db->prepare("
                 SELECT t.*, p.name AS project_name, u.name AS assigned_to_name
@@ -26,10 +52,23 @@ class TaskRepository extends BaseRepository implements TaskRepositoryInterface
             error_log("Database error in TaskRepository::find: " . $e->getMessage());
             return null;
         }
+
     }
 
     public function getByProject(int $projectId): array
     {
+
+        $sql = "SELECT t.*, u.full_name AS assignee_name FROM tasks t
+                JOIN projects p ON p.id = t.project_id
+                LEFT JOIN users u ON u.id = t.assigned_to
+                WHERE t.project_id = :id AND t.deleted_at IS NULL AND p.deleted_at IS NULL";
+        if ($topLevelOnly) $sql .= " AND t.parent_task_id IS NULL";
+        $sql .= " ORDER BY " . self::STATUS_ORDER . ", t.due_date IS NULL, t.due_date ASC";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute(['id' => $projectId]);
+        return $stmt->fetchAll();
+
         try {
             $stmt = $this->db->prepare("
                 SELECT t.*, u.name AS assigned_to_name
@@ -44,6 +83,7 @@ class TaskRepository extends BaseRepository implements TaskRepositoryInterface
             error_log("Database error in TaskRepository::getByProject: " . $e->getMessage());
             return [];
         }
+
     }
 
     public function getByUser(int $userId): array
@@ -52,8 +92,14 @@ class TaskRepository extends BaseRepository implements TaskRepositoryInterface
             $stmt = $this->db->prepare("
                 SELECT t.*, p.name AS project_name
                 FROM tasks t
+
+                JOIN projects p ON p.id = t.project_id
+                LEFT JOIN users u ON u.id = t.assigned_to
+                WHERE t.status != 'done' AND t.deleted_at IS NULL AND p.deleted_at IS NULL AND t.due_date IS NOT NULL
+
                 LEFT JOIN projects p ON t.project_id = p.id
                 WHERE t.assigned_to = :user_id
+
                 ORDER BY t.due_date ASC
             ");
             $stmt->execute([':user_id' => $userId]);
@@ -133,7 +179,7 @@ class TaskRepository extends BaseRepository implements TaskRepositoryInterface
             ]);
         } catch (PDOException $e) {
             error_log("Database error in TaskRepository::updateStatus: " . $e->getMessage());
-=======
+
 require_once 'NotificationRepository.php';
 
 class TaskRepository {
@@ -161,6 +207,52 @@ class TaskRepository {
                 $this->notificationRepo->createNotification($newAssignee, 'assignment', 'مهمة جديدة', $msg, "/modules/tasks/view.php?id=$taskId");
             }
 
+
+    public function countByStatusNot(string $status): int
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM tasks t
+             JOIN projects p ON p.id = t.project_id
+             WHERE t.status != :status AND t.deleted_at IS NULL AND p.deleted_at IS NULL"
+        );
+        $stmt->execute(['status' => $status]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function countByStatus(string $status): int
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM tasks t
+             JOIN projects p ON p.id = t.project_id
+             WHERE t.status = :status AND t.deleted_at IS NULL AND p.deleted_at IS NULL"
+        );
+        $stmt->execute(['status' => $status]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /** Count incomplete overdue tasks (due_date < CURDATE() and status != 'done') excluding deleted tasks/projects. */
+    public function countOverdue(): int
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM tasks t
+             JOIN projects p ON p.id = t.project_id
+             WHERE t.status != 'done'
+               AND t.due_date IS NOT NULL
+               AND t.due_date < CURDATE()
+               AND t.deleted_at IS NULL
+               AND p.deleted_at IS NULL"
+        );
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function rawForBurndown(int $projectId): array
+    {
+        $stmt = $this->db->prepare("SELECT status, created_at, completed_at FROM tasks WHERE project_id = :id AND deleted_at IS NULL");
+        $stmt->execute(['id' => $projectId]);
+        return $stmt->fetchAll();
+    }
+
             // 3. إشعار اكتمال المهمة لمدير المشروع
             if ($newStatus === 'completed' && $oldStatus !== 'completed') {
                 $msg = "تم إكمال المهمة: " . $taskTitle;
@@ -182,6 +274,7 @@ class TaskRepository {
             // تأكيد العملية وحفظها في قاعدة البيانات
             $this->db->commit();
             return true;
+
 
         } catch (Exception $e) {
             // التراجع عن كل شيء في حال حدوث خطأ
